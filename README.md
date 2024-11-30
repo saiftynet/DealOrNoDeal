@@ -10,7 +10,7 @@ Version 0.001
 * A reasonable simulation of [A TV game show](https://en.wikipedia.org/wiki/Deal_or_No_Deal)
 * Opportunity to play the Banker or the Player
 * The best part of this game is actualy the interactions between the player the host and the banker.
-Implemenetations will start incorporating more and more interactions that involve wit, wisdom and
+Implementations will start incorporating more and more interactions that involve wit, wisdom and
 mind manipulation interactions.
 
 ### Project Plan
