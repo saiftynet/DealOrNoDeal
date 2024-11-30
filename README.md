@@ -1,7 +1,11 @@
 # DealOrNoDeal
 A Terminal Game that tries to use Object::Pad to replicate Deal-Or-No-Deal Game.  While this is in itself 
-will hopefully become a reasonably fun implementation, it is mainly a test bed for me to learn Object::Pad
-and the eventual Core Object system.
+will hopefully become a reasonably fun implementation, it is mainly a test bed for me to learn
+[Object::Pad](https://metacpan.org/dist/Object-Pad) and the eventual Core Object system. 
+[Paul Evans](https://metacpan.org/author/PEVANS) was quite keen on feedback from the community regarding
+the evolution of the Perl's Internal Object Modelling system based on [Cor](https://github.com/Perl-Apollo/Corinna)
+and this requires people to use it, hence this application.
+
 
 Version 0.001
 ![image](https://github.com/saiftynet/DealOrNoDeal/blob/main/Screenshots/Version001.png)
