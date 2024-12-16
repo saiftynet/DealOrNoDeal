@@ -21,3 +21,7 @@ mind manipulation interactions.
 1. Identify Required Objects, Fields and Methods
 2. Build Class to display on a Terminal 
 3. Build an Interaction Class
+
+### Version 0.003
+- Split the Game Objects and UI/Display Objects as two separate files
+- Now better interactions with the two different modes identified (either choosing Deal or no deal, or choosing a box)
