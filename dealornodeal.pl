@@ -10,7 +10,7 @@ use strict;
 use warnings;
 use Object::Pad;
 use lib "lib";
-use Game::DoND::UI;
+use Game::Term::Interaction;
 my $VERSION=0.003;
 
 our $painter=Display->new();
@@ -33,7 +33,7 @@ class Board {
    field $width :param=80;
    field $height :param=20;
    field $debug :param//=0;
-   field @boxes;
+   field @boxes :reader;
    field $playersBox;
    field $gameState :reader :writer ={
 	   moneyRevealed=>[], # money revealed in the order they were revealed
@@ -199,9 +199,21 @@ This prints a splash logo and then starts the UI in Box Micking mode
 				  $self->mode("banker");
 				  $banker->makeOffer();
 			  }
+			  elsif(scalar @boxes==1){
+				  $self->finalBox();				  
+			  }
 			  else{
 				   $self->promptOpenBox();
 			   }
+	  }
+	  
+	  method finalBox(){
+		  
+		  $self->message("Ok the final box is left!\n".
+		  (($gameState->{dealt})?(" You have already accepted  ".$gameState->{dealt}):
+		                          (" You have already rejected  ".$banker->maxOffer())).
+		   "\nYour box contained ... ". $playersBox->money()->toString("£"));
+		  
 	  }
 
       method promptOpenBox(){
@@ -324,11 +336,12 @@ class Banker{
 	field $remarks;
 	field $offers=[];
 	field $offer :reader;
+	field $maxOffer :reader=0;
 	field $swapOffered;
 	field $already
 	
 	method makeOffer(){
-		$offer=int(10000*rand());
+		$offer=$self->stats();
 		$offers=[@$offers,$offer];
 		$board->message("With this board,  Banker ". 
 		      (($board->gameState()->{dealt})?" would have offered ": "offers you").":");
@@ -345,6 +358,22 @@ class Banker{
 		
 	}
 	method ringPhone(){
+		
+	}
+	
+	method stats(){
+		my @moneyLeft=sort {$a->value()<=>$b->value()} map {$_->money()} $board->boxes();
+		my $max=$moneyLeft[-1]->toString("£");
+		my $min=$moneyLeft[0]->toString("£");
+		my $blues=scalar map {$_->value()>75000?():$_} @moneyLeft;
+		my $reds =scalar @moneyLeft-$blues;
+		my $offer=$moneyLeft[int ((scalar @moneyLeft)/2)]->value()/100;
+		$board->message("There are $blues blues and $reds reds left\n".
+		               "You could have $max,\nbut just as likely have $min\n".
+		               "With this board\n (and because I like you)");
+		sleep 5;
+		$maxOffer=$offer if $offer>$maxOffer;
+		return $offer;
 		
 	}
 }
