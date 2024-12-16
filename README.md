@@ -23,5 +23,6 @@ mind manipulation interactions.
 3. Build an Interaction Class
 
 ### Version 0.003
+![image](https://github.com/saiftynet/DealOrNoDeal/blob/main/Screenshots/dond.gif)
 - Split the Game Objects and UI/Display Objects as two separate files
 - Now better interactions with the two different modes identified (either choosing Deal or no deal, or choosing a box)
