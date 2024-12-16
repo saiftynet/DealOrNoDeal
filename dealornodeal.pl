@@ -9,16 +9,17 @@
 use strict;
 use warnings;
 use Object::Pad;
-
-my $VERSION=0.002;
+use lib "lib";
+use Game::DoND::UI;
+my $VERSION=0.003;
 
 our $painter=Display->new();
 our $ui=new UI;
-setupUI($ui);
+setupUI();
 
 my $board=Board->new();
-$board->draw();
-$ui->run("default");
+my $banker=Banker->new();
+$board->run();
 
 =head2 BOARD
 A Board object contains all the Box objects which contain Money objects
@@ -28,17 +29,36 @@ boxes and money left.
 =cut
 
 class Board {
-   use List::Util qw/shuffle/;
+   use List::Util qw/shuffle any/;
    field $width :param=80;
    field $height :param=20;
    field $debug :param//=0;
    field @boxes;
    field $playersBox;
+   field $gameState :reader :writer ={
+	   moneyRevealed=>[], # money revealed in the order they were revealed
+	   left=>{},
+	   deal=>undef,       # response to offer
+	   dealt=>undef,      # deal made
+	   endGame=>undef,
+	   mode=>"boxPicking",
+   };
+   field @bankOffers=(22,19,16,13,10,7,4,3,2);
    field $selectedBox=0;
-   field $removed={};
-   field %boxes;           
-   field @screen;
-   field $mode="boxSelect";
+   field $textImage={
+	   "deal"=>"██▙ ▄▄▄▖▗▄▄ ▄   
+█ ▜▌█▀▀▘█▀▜▌█   
+█ ▟▌█▀▘ ███▌█   
+██▛ ███▌█ ▐▌███▌",
+       "or"=>" ▄▖ ▄▄▄     
+▟▛█▖█▀▜▌
+█▖▟▌██▛   
+▝█▛ █▝█▖ ",
+       "nodeal"=>"█▖▐▌ ▄▖   ██▙ ▄▄▄▖▗▄▄ ▄   
+██▟▌▟▛█▖  █ ▜▌█▀▀▘█▀▜▌█   ⠀
+█▝█▌█▖▟▌  █ ▟▌█▀▘ ███▌█   ⠀
+█ ▐▌▝█▛   ██▛ ███▌█ ▐▌███▌",
+   };
    
 =head3 BUILD()
 Initialises the board and creates the Box objects each of which has a Money
@@ -72,23 +92,83 @@ positions that would fit into a minimal 80x24 ANSI terminal window
 	}
 =head3 draw()
 draws the Board.  Simply loops through all the boxes and their contents
-and draws them if they are available, then pouts the cursor at the bottom of the screen
+and draws them if they are available, then puts the cursor at the bottom of the screen
 =cut	  
 	  method draw(){
 		  foreach (@boxes){
 			 $_->draw();
 			 $_->money->draw(); 
 		 };	
-		 $painter->printAt(24,20,$painter->paint($self->debugInfo(),"reset"));
+		 $playersBox->draw() if $playersBox;
+	  }
+
+=head 3 run()
+This prints a splash logo and then starts the UI in Box Micking mode
+=cut
+	  
+	  method run(){
+		  $painter->flash($painter->paint($textImage->{deal},"green"),18,15,.2,9);
+		  $painter->flash($painter->paint($textImage->{or},"yellow"),18,31,.2,3);
+		  $painter->flash($painter->paint($textImage->{nodeal},"red"),18,39,.2,9);
+		  $self->draw();
+		  $self->message("Host: Welcome to DEAL   OR   NO DEAL!\nPick any box you like\n(Use left and right arrow keys)");
+		  $ui->run("boxPicking");
 	  }
 	  
-	  method debugInfo(){
-		  return "Selected Box is ".$boxes[$selectedBox]->number(). " ".scalar @boxes." boxes left  \n";	  
+	  method message($message){
+		  $painter->printAt(17,15,[(" " x 52)x7]);  # clear message area
+		  $painter->printAt(18,20,$message);        # prints message
 	  }
 	  
-	  method toBox($delta){
+	  method mode($newMode){
+		  if ($newMode){
+			  $gameState->{mode}=$newMode if $newMode;
+			  $ui->stop();
+		      $ui->run($newMode);
+		  }
+		  return $gameState->{mode};
+	  }
+	  
+	  method chooseDoND($dond){
+		$gameState->{deal}=$dond;
+		my $dColor=$dond  eq "Deal"    ? "green":"yellow";
+		my $ndColor=$dond eq "No Deal" ? "red"  :"yellow";
+	  	$painter->printAt(19,15,$painter->paint($textImage->{deal},$dColor));
+		$painter->printAt(19,31,$painter->paint($textImage->{or},"yellow"));
+		$painter->printAt(19,41,$painter->paint($textImage->{nodeal},$ndColor));
+	  }
+	  
+	  method selectDoND(){
+			  if ($gameState->{dealt}){
+				  $self->message("OK you have already dealt at  £$gameState->{dealt}\n".
+				  "Banker would have offered you ".$banker->offer());
+			  }
+			  else{
+				  if ($gameState->{deal} eq "Deal"){
+					  $gameState->{dealt}=$banker->offer();
+					  $self->message("OK you have dealt at  £$gameState->{dealt}");
+				  }
+				  else{
+					  $self->message("OK you have declined £".$banker->offer());
+				  }
+			  }	
+			  sleep 1;
+			  $self->promptOpenBox();
+	 }
+	  
+
+	  
+=head3 chooseBox()
+    Choose next box in either direction skipping over player's box 
+    wrapping around if needed
+=cut	  
+	  
+	  method chooseBox($delta){
 		  if (defined $selectedBox){
 			  $selectedBox+=$delta;
+			  $selectedBox = 0      if ($selectedBox >= @boxes);
+			  $selectedBox =$#boxes if ($selectedBox < 0);
+			  $selectedBox+=$delta  if $boxes[$selectedBox]->picked();
 			  $selectedBox = 0      if ($selectedBox >= @boxes);
 			  $selectedBox =$#boxes if ($selectedBox < 0);
 		  }
@@ -103,25 +183,46 @@ and draws them if they are available, then pouts the cursor at the bottom of the
 		  return $boxes[$selectedBox]->number();
 	  }
 	  
-	  method removeBox(){
+	  method selectBox(){
 		  die unless @boxes;
-		  $boxes[$selectedBox]->undraw();		  		
+			  if (not defined $playersBox){
+			     $self->message("You have Picked Box Number ".$boxes[$selectedBox]->number()."\nGood Luck!!!\n\nBanker do you want to make an offer?");
+			     $self->playerPick();
+		         $boxes[$selectedBox]->draw();	
+		      }
+		      else{				  
+		         $self->removeSelected(); 
+		         $self->draw();
+			  }
+		      sleep 1;
+		      if (any { $_ == scalar @boxes } @bankOffers ){
+				  $self->mode("banker");
+				  $banker->makeOffer();
+			  }
+			  else{
+				   $self->promptOpenBox();
+			   }
+	  }
+
+      method promptOpenBox(){
+		  $self->message("Use Left and Right Arrow keys\nto choose box to open");
+		  $self->mode("boxPicking");
+	  }
+
+	  method removeSelected(){
+		  my $selBox=$boxes[$selectedBox];
+		  $boxes[$selectedBox]->money()->undraw();
+		  $boxes[$selectedBox]->undraw();
 		  @boxes=(@boxes[0..$selectedBox-1],@boxes[$selectedBox+1..$#boxes]);
-		  $selectedBox = $#boxes if ($selectedBox>$#boxes);
-		  $self->draw();
-		  
+		  $self->chooseBox(1); # skip over player's box and blank boxes
+		  return $selBox;
 	  }
 	  
 	  method playerPick(){
 		  $playersBox=$boxes[$selectedBox];
-		  $self->removeBox()
+		  $boxes[$selectedBox]->set_picked(1);
+		  $self->chooseBox(1); # skip over player's box and blank boxes
 	  }
-	  
-	  method openBox(){
-		  
-		  
-	  }  
-	  
 }
 
 =head2 Money
@@ -142,7 +243,7 @@ $sets $available to 0, so it is skipped by the draw() function
 	method remove(){
 		$available=0;
 	}
-
+	
 =head3 draw()
 draws the Money.  Money has value in pence and this is converted into a label
 a centered item is made ; calcualtion and drawing is complicated by the way the 
@@ -171,8 +272,11 @@ terminal may display characters and how perl reads them: e.g.
 	method undraw(){
 		my $colour=$value<100000?"white,on_blue":"white,on_magenta";
 		my $str=$painter->paint($painter->largeNum($self->toString("L")),$colour);
-		$painter->flash($str,19,20,.2,5);
-		$painter->printAt($row*2,($side eq "left"?2:68),"            ");
+		$board->message("That box contained");
+		sleep 1;
+		$board->message("");
+		$painter->flash($str,19,25,.2,6);
+		$painter->printAt($row*2,($side eq "left"?2:68)," "x12);
 	}
 }
 
@@ -188,15 +292,16 @@ class Box{
 	field $money  :reader :param;
 	field $location :reader :writer;
 	field $highlighted :reader :writer;
-	field $picked=0;
+	field $picked :reader :writer;
 =head3 draw()
 draws the Box at its location if it has not been opened.  It may be highlighted
 when "blink" is added to its decorations.
 =cut		
 
 	method draw(){
-		my $label=$painter->decorate("black,on_white")." ".$number.(" "x(3-length ($number))).$painter->decorate("white,on_red");
-		my $decorations   =$board->selectedBoxNo()?"white,on_red":"white,on_red,faint";
+		my $colour=$picked?"green":"red";
+		my $label=$painter->decorate("black,on_white")." ".$number.(" "x(3-length ($number))).$painter->decorate("white,on_$colour");
+		my $decorations   =$board->selectedBoxNo()?"white,on_$colour":"white,on_$colour,faint";
 		my $image=$number!=$board->selectedBoxNo()?
 		          "┌──────┐\n│ $label │\n└──────┘":
 		          "╔══════╗\n║ $label ║\n╚══════╝";
@@ -205,12 +310,8 @@ when "blink" is added to its decorations.
 	}
 	
 	method undraw(){
-		$money->undraw();
 		$painter->printAt($location->{row},$location->{column},
-		                  $painter->paint(
-                            "               \n".
-                            "               \n".
-                            "               ","white,on_black"));
+		                  $painter->paint([(" "x15)x3],"white,on_black"));
 	}
 }
 
@@ -221,9 +322,26 @@ A Banker object interacts with the user
 
 class Banker{
 	field $remarks;
+	field $offers=[];
+	field $offer :reader;
 	field $swapOffered;
+	field $already
 	
-	method makeOffer($board){
+	method makeOffer(){
+		$offer=int(10000*rand());
+		$offers=[@$offers,$offer];
+		$board->message("With this board,  Banker ". 
+		      (($board->gameState()->{dealt})?" would have offered ": "offers you").":");
+		$painter->printAt(20,25,$painter->paint($painter->largeNum("L".$offer),"yellow,on_green"));
+		sleep 2;
+		if ($board->gameState()->{dealt}){
+			$board->promptOpenBox();
+		}
+		else{
+			$board->message("Banker offers £$offer... Deal or No Deal?\n(use left right arrow keys, then Enter)?");
+			$board->chooseDoND(0);
+			$board->mode("dealornodeal");
+		}
 		
 	}
 	method ringPhone(){
@@ -231,334 +349,22 @@ class Banker{
 	}
 }
 
-=head2 Player
+sub setupUI(){  # setup the UI
+  $ui->setup({
+	 default=>{
+	 },
+     boxPicking=>{
+        'rightarrow'=>sub{$board->chooseBox(1)},  # select next box
+        'leftarrow' =>sub{$board->chooseBox(-1)}, # previous box 
+        'return'    =>sub{$board->selectBox()},
+        "updateAction"=>sub{$board->draw();},      
+     },
+     dealornodeal=>{
+        'rightarrow'=>sub{$board->chooseDoND("No Deal")},  # select next box
+        'leftarrow' =>sub{$board->chooseDoND("Deal")},  # turn left 
+        'return'    =>sub{$board->selectDoND()},
+        "updateAction"=>sub{$board->draw();},     
+		},
+    });
 
-A Player object chooses boxes, and when offered is made decides whether to 
-take the deal or not.
-
-=cut
-
-class Player{
-
-}
-
-=head2 Display
-A Display object, draws and decorates items on a terminal window.
-=cut
-
-class Display{
-	use Time::HiRes "sleep";
-	field %colours=(black   =>30,red   =>31,green   =>32,yellow   =>33,blue   =>34,magenta   =>35,cyan  =>36,white   =>37,
-               on_black=>40,on_red=>41,on_green=>42,on_yellow=>43,on_blue=>44,on_magenta=>45,on_cyan=>46,on_white=>47,
-               reset=>0, bold=>1, faint=>2, italic=>3, underline=>4, blink=>5, strikethrough=>9, invert=>7, fast_blink=>6, no_blink=>25);
-    field $buffer="\033[?c";
-    field $bigNum={1=>[" ▟ "," ▐ "," ▟▖"],
-		           2=>["▞▀▖"," ▞ ","▟▄▖"],
-		           3=>["▞▀▖"," ▀▖","▚▄▘"],
-		           4=>[" ▟ ","▟▟▖"," ▐ "],
-		           5=>["▛▀▘","▀▀▖","▚▄▘"],
-		           6=>["▞▀▖","▙▄ ","▚▄▘"],
-		           7=>["▀▀▌"," ▞ ","▞  "],
-		           8=>["▞▀▖","▞▀▖","▚▄▘"],
-		           9=>["▞▀▖","▝▀▌","▚▄▘"],
-		           0=>["▞▀▖","▌ ▌","▚▄▘"],
-		           " "=>["   ","   ","   "],
-		           "L"=>["▗▚ ","▟▄ ","▟▄ "],
-		           "p"=>["   ","▗▚ ","▐▘ "],
-			   };
-     
-     BUILD{
-		 print "\033[?25l"; # disable blinking cursor
-	 }
-=head3 style($style)
-returns the Escape sequence that corresponds to an ANSI style
-=cut		
-    method style($style){
-		return exists $colours{$style}?"\033[$colours{$style}m":"";
-	}
-	
-=head3 decorate()
-allows multiple style sequences.  these style formats may be passes either as
-a comma separted string or an ArrayRef
-=cut		
-	method decorate($formats){
-		my @fmts=ref $formats? @$formats :  split(",",$formats);
-		my $dec="";
-		foreach (@fmts){
-			$dec.=exists $colours{$_}?"\033[$colours{$_}m":"";
-		}
-		return $dec
-	}
-	
-=head3 paint($string,@formats)
-	# multiple styles can used by either using a ref to a list of styles, or comma separated list
-	# multiline strings is handled by either using a ref to a list of strings, or comma separated list
-=cut
-    method paint($string,$formats){ 
-		return unless $string;
-		my @strs=ref $string ? @$string  :  split("\n",$string);
-		foreach (0..$#strs){
-			$strs[$_]=$self->decorate($formats).$strs[$_]."\033[$colours{reset}m";
-		}
-		return ref $string?\@strs:join("\n",@strs);
-	}
-	
-=head3 printAt($row,$column,$string)
- print a string to a cursor position
- multiline strings is handled by either using a ref to a list of strings, or comma separated list
-=cut	
-	method printAt($row,$column,$string){
-		$string//="";
-		my @strs=ref $string ? @$string  :  split("\n",$string);
-		print "\033[".$row++.";$column"."H".$_ foreach (@strs);
-        $|=1;
-	}
-	
-	method clear(){
-		system($^O eq 'MSWin32'?'cls':'clear');
-		#print "\033[?25l"; # disable blinking cursor
-		$buffer="\033[?c";
-	}
-	
-	method stripColours($str){
-        $str=~s/\033\[[^m]+m//g;
-        return $str;
-	}
-	
-	method blank($string){
-		my @strs=ref $string ? @$string  :  split("\n",$string);
-		foreach (0..$#strs){
-			$strs[$_]=" " x length($self->stripColours($strs[$_]));
-		}
-		return ref $string?\@strs:join("\n",@strs);
-	}
-	
-	method flash($string,$row,$column,$interval,$number){
-		my $blank=$self->blank($string);
-		for (0..$number){
-			$self->printAt($row,$column,$string);
-			sleep $interval;
-			$self->printAt($row,$column,$blank);
-		    sleep $interval;
-		}
-	}
-	
-	method largeNum($number){
-		my $lot=["","",""];
-		foreach my $digit  (split //, $number){
-			die $digit unless $bigNum->{$digit};
-			foreach(0..2){
-				$lot->[$_].=$bigNum->{$digit}->[$_]
-			}
-		}
-		return $lot;
-	}
-
-}
-
-
-sub setupUI($ui){  # setup the UI
-	    my $keyActions={
-        default=>{
-            'rightarrow'=>sub{$board->toBox(1)},  # select next box
-            'leftarrow' =>sub{$board->toBox(-1)},  # turn left 
-            'uparrow'   =>sub{},
-            'downarrow' =>sub{},
-            'return'    =>sub{$board->removeBox()},
-            'd'         =>sub{},
-            'a'         =>sub{},
-            'pagedown'  =>sub{},
-            'pageup'    =>sub{},
-            'tab'       =>sub{},
-            'shifttab'  =>sub{},
-            '#'         =>sub{},
-            "updateAction"=>sub{$board->draw();},      
-            "windowChange"=>sub{},           
-            "m"           =>sub{}, 
-        },
-    };
-	foreach my $k (keys %{$keyActions->{default}}){
-            $ui->setKeyAction("default",$k,$keyActions->{"default"}->{$k});
-    }
-}
-
-
-
-=head2 UI
-An Interaction Object handles interactions with the Terminal
-
-=cut
-
-class UI{   
-#######################################################################################
-#####################   User Interaction Object #######################################
-#######################################################################################
-    field $update=1;
-    field $window={width=>80,height=>24};
-    field $stty;
-    field $mode;
-    field $buffer="";
-    field $run;
-    field $namedKeys={};
-    field $actions={};
-    field $mapping;
-    field $repeat=0;
-    field $debug=0;
-    
-    $SIG{WINCH} = sub {winSizeChange()};
-    
-    BUILD{
-		$namedKeys={
-        32     =>  'space',
-        13     =>  'return',
-        9      =>  'tab',
-        '[Zm'  =>  'shifttab',
-        '[Am'  =>  'uparrow',
-        '[Bm'  =>  'downarrow',
-        '[Cm'  =>  'rightarrow',
-        '[Dm'  =>  'leftarrow',
-        '[Hm'  =>  'home',
-        '[2~m' =>  'insert',
-        '[3~m' =>  'delete',
-        '[Fm'  =>  'end',
-        '[5~m' =>  'pageup',
-        '[6~m' =>  'pagedown',
-        '[Fm'  =>  'end',
-        'OPm'  =>  'F1',
-        'OQm'  =>  'F2',
-        'ORm'  =>  'F3',
-        'OSm'  =>  'F4',
-        '[15~m'=> 'F5',
-        '[17~m'=> 'F6',
-        '[18~m'=> 'F7',
-        '[19~m'=> 'F8',
-        '[21~m'=> 'F10',
-        '[24~m'=> 'F12',
-    };    
-		
-	}
-    
-    method run{
-		$mode//="default";
-		$run=1;
-		$self->get_terminal_size();
-		binmode(STDIN);
-		$self->ReadMode(5);
-		my $key;
-		    while ($run) {
-				last if ( !$self->dokey($key) );
-				$actions->{$mode}->{updateAction}->() // updateAction() if ($update); # update screen
-				$update=1;
-				$key = $self->ReadKey();
-			}
-		$self->ReadMode(0);
-		print "\n";
-	}
-    
-  method repeat($rep){   # enable or disable keyboard repeat
-		$rep//=$repeat?0:1; # if not specified toggle the repeat
-		for ($rep){
-			/on|1/i && do{
-				`xset r on`;
-				$repeat=1;
-				last;
-			};
-			/off|0/i && do{
-				`xset r off`;
-				$repeat=0;
-				last;
-			};
-		}
-	}
-
-	method stop{
-		$run=0;
-		$| = 1;
-		`xset r on`;
-	}
-	
-	method dokey($key) {
-       return 1 unless (defined $key);
-       my $ctrl = ord($key);my $esc="";
-       return if ($ctrl == 3);                 # Ctrl+c = exit;
-       my $pressed="";
-       if ($ctrl==27){
-         while ( my $key = $self->ReadKey() ) {
-           $esc .= $key;
-           last if ( $key =~ /[a-z~]/i );
-         }
-         if ($esc eq "O"){# F1-F5
-            while ( my $key = $self->ReadKey() ) {
-             $esc .= $key;
-             last if ( $key =~ /[a-z~]/i );
-            }
-          }    
-         $esc.="m"
-       };
-       if    (exists $namedKeys->{$ctrl}){$pressed=$namedKeys->{$ctrl}}
-       elsif (exists $namedKeys->{$esc}) {$pressed=$namedKeys->{$esc}}
-       else  {$pressed= ($esc ne "")?$esc:chr($ctrl);};
-       $self->act($pressed,$key);    
-       return 1;
-   }
-
-# if action defined by mode and keypress, then do the action
-# otherwise, key press  is entered into buffer
-   method act($pressed,$key){ 
-      if ($actions->{$mode}->{$pressed}){
-        $actions->{$mode}->{$pressed}->();
-      }
-      else{
-        $buffer.=$key;
-      } 
-    $self->stop() if ($pressed eq "Q");
-    print $pressed if $debug;
-    $update=1;
-  }
-
-  method get_terminal_size {
-    if ($^O eq 'MSWin32'){
-        `chcp 65001\n`;
-        my $geometry=(split("\n", `powershell -command "&{(get-host).ui.rawui.WindowSize;cls}"`))[3];
-        ($window->{height}, $window->{width})=(split(/\s+/,$geometry))[1,2];
-    }
-    else{    
-        ($window->{height},  $window->{width} ) = split( /\s+/, `stty size` );
-         $window->{height} -= 2;
-    }
-  }
-
-
-  method winSizeChange{
-    $self->get_terminal_size();
-    $actions->{$mode}->{"windowChange"}->() if $actions->{$mode}->{"windowChange"};
-  }
-
-  method ReadKey {
-    my $key = '';
-    sysread( STDIN, $key, 1 );
-    return $key;
-  }
-
-  method ReadLine { return <STDIN>;}
-  
-  method ReadMode($mode){
-    if ( $mode == 5 ) {  
-        $stty = `stty -g`;
-        chomp($stty);
-        system( 'stty', 'raw', '-echo' );# find Windows equivalent
-    }
-    elsif ( $mode == 0 ) {
-        system( 'stty', $stty ); # find Windows equivalent
-    }
-  }
-
-### actions to update the screen need to be setup for interactive applications 
-  method setKeyAction($mode,$key,$uAction){
-    $actions->{$mode}->{$key}=$uAction;
-  }
-
-  method updateAction{
-    print "\n\r";
-   }
 }
