@@ -12,7 +12,6 @@ use Object::Pad;
 use lib "lib";
 use Game::Term::Interaction;
 my $VERSION=0.003;
-
 our $painter=Display->new();
 our $ui=new UI;
 setupUI();
@@ -134,11 +133,12 @@ This prints a splash logo and then starts the UI in Box Micking mode
 		my $dColor=$dond  eq "Deal"    ? "green":"yellow";
 		my $ndColor=$dond eq "No Deal" ? "red"  :"yellow";
 	  	$painter->printAt(19,15,$painter->paint($textImage->{deal},$dColor));
-		$painter->printAt(19,31,$painter->paint($textImage->{or},"yellow"));
+		$painter->printAt(19,31,$painter->paint($textImage->{or},"white"));
 		$painter->printAt(19,41,$painter->paint($textImage->{nodeal},$ndColor));
 	  }
 	  
 	  method selectDoND(){
+		      $ui->stop();
 			  if ($gameState->{dealt}){
 				  $self->message("OK you have already dealt at  £$gameState->{dealt}\n".
 				  "Banker would have offered you ".$banker->offer());
@@ -184,6 +184,8 @@ This prints a splash logo and then starts the UI in Box Micking mode
 	  }
 	  
 	  method selectBox(){
+		  
+		  $ui->stop();
 		  die unless @boxes;
 			  if (not defined $playersBox){
 			     $self->message("You have Picked Box Number ".$boxes[$selectedBox]->number()."\nGood Luck!!!\n\nBanker do you want to make an offer?");
