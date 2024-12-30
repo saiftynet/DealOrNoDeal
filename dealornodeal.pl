@@ -9,10 +9,16 @@
 use strict;
 use warnings;
 use Object::Pad;
+
 use lib "lib";
-use Game::Term::Interaction;
+# Game::Term::Interaction is another Object::Pad module
+# that handles graphics and user interaction
+# through two classes Display and UI
+use Game::Term::Interaction; 
+
 my $VERSION=0.003;
-our $painter=Display->new();
+
+our $display=Display->new();
 our $ui=new UI;
 setupUI();
 
@@ -29,11 +35,12 @@ boxes and money left.
 
 class Board {
    use List::Util qw/shuffle any/;
-   field $width :param=80;
-   field $height :param=20;
+   field $width :reader :writer :param=90;
+   field $height :reader :writer :param=20;
    field $debug :param//=0;
    field @boxes :reader;
    field $playersBox;
+   field $messageArea;
    field $gameState :reader :writer ={
 	   moneyRevealed=>[], # money revealed in the order they were revealed
 	   left=>{},
@@ -102,23 +109,31 @@ and draws them if they are available, then puts the cursor at the bottom of the 
 	  }
 
 =head 3 run()
-This prints a splash logo and then starts the UI in Box Micking mode
+This prints a splash logo and then starts the UI in Box Picking mode
 =cut
 	  
 	  method run(){
-		  $painter->flash($painter->paint($textImage->{deal},"green"),18,15,.2,9);
-		  $painter->flash($painter->paint($textImage->{or},"yellow"),18,31,.2,3);
-		  $painter->flash($painter->paint($textImage->{nodeal},"red"),18,39,.2,9);
+		  $display->flash($display->paint($textImage->{deal},"green"),18,15,.2,9);
+		  $display->flash($display->paint($textImage->{or},"yellow"),18,31,.2,3);
+		  $display->flash($display->paint($textImage->{nodeal},"red"),18,39,.2,9);
 		  $self->draw();
 		  $self->message("Host: Welcome to DEAL   OR   NO DEAL!\nPick any box you like\n(Use left and right arrow keys)");
 		  $ui->run("boxPicking");
 	  }
 	  
+=head 3 message()
+prints a block message in the messaging area
+=cut
+	  	  
 	  method message($message){
-		  $painter->printAt(17,15,[(" " x 52)x7]);  # clear message area
-		  $painter->printAt(18,20,$message);        # prints message
+		  $display->printAt(17,15,[(" " x 52)x7]);  # clear message area
+		  $display->printAt(18,20,$message);        # prints message
 	  }
 	  
+=head 3 mode()
+change to mode (e.g. either picking a box, or choosing deal or no deal)
+=cut
+	 	  
 	  method mode($newMode){
 		  if ($newMode){
 			  $gameState->{mode}=$newMode if $newMode;
@@ -128,15 +143,23 @@ This prints a splash logo and then starts the UI in Box Micking mode
 		  return $gameState->{mode};
 	  }
 	  
+=head 3 chooseDoND()
+In DealorNoDeal mode the either option is highlighted using the arrow keys
+=cut
+	 	  
 	  method chooseDoND($dond){
 		$gameState->{deal}=$dond;
 		my $dColor=$dond  eq "Deal"    ? "green":"yellow";
 		my $ndColor=$dond eq "No Deal" ? "red"  :"yellow";
-	  	$painter->printAt(19,15,$painter->paint($textImage->{deal},$dColor));
-		$painter->printAt(19,31,$painter->paint($textImage->{or},"white"));
-		$painter->printAt(19,41,$painter->paint($textImage->{nodeal},$ndColor));
+	  	$display->printAt(19,15,$display->paint($textImage->{deal},$dColor));
+		$display->printAt(19,31,$display->paint($textImage->{or},"white"));
+		$display->printAt(19,41,$display->paint($textImage->{nodeal},$ndColor));
 	  }
 	  
+=head 3 selectDoND()
+In DealorNoDeal mode the highlighted option is selected using the return key
+=cut
+	 		  
 	  method selectDoND(){
 		      $ui->stop();
 			  if ($gameState->{dealt}){
@@ -158,9 +181,9 @@ This prints a splash logo and then starts the UI in Box Micking mode
 	  
 
 	  
-=head3 chooseBox()
+=head3 chooseBox() and selectBox()
     Choose next box in either direction skipping over player's box 
-    wrapping around if needed
+    wrapping around if needed.  Return executes selectBox()
 =cut	  
 	  
 	  method chooseBox($delta){
@@ -178,13 +201,7 @@ This prints a splash logo and then starts the UI in Box Micking mode
 		  $self->draw();
 	  }
 	  
-	  method selectedBoxNo(){
-		  return 0 unless defined $selectedBox;
-		  return $boxes[$selectedBox]->number();
-	  }
-	  
 	  method selectBox(){
-		  
 		  $ui->stop();
 		  die unless @boxes;
 			  if (not defined $playersBox){
@@ -209,10 +226,20 @@ This prints a splash logo and then starts the UI in Box Micking mode
 			   }
 	  }
 	  
+	  method playerPick(){ # first box that is picked goes to the player
+		  $playersBox=$boxes[$selectedBox];
+		  $boxes[$selectedBox]->set_picked(1);
+		  $self->chooseBox(1); # skip over player's box and blank boxes
+	  }
+	  
+	  method selectedBoxNo(){
+		  return 0 unless defined $selectedBox;
+		  return $boxes[$selectedBox]->number();
+	  }
+	  	  
 	  method finalBox(){
-		  
 		  $self->message("Ok the final box is left!\n".
-		  (($gameState->{dealt})?(" You have already accepted  ".$gameState->{dealt}):
+		  (($gameState->{dealt})?(" You have already accepted £".$gameState->{dealt}):
 		                          (" You have already rejected  ".$banker->maxOffer())).
 		   "\nYour box contained ... ". $playersBox->money()->toString("£"));
 		  
@@ -232,13 +259,17 @@ This prints a splash logo and then starts the UI in Box Micking mode
 		  return $selBox;
 	  }
 	  
-	  method playerPick(){
-		  $playersBox=$boxes[$selectedBox];
-		  $boxes[$selectedBox]->set_picked(1);
-		  $self->chooseBox(1); # skip over player's box and blank boxes
-	  }
+	  method screenSizeChange(){
+			$ui->get_terminal_size();
+			$width=$ui->{window}->{width};
+			$height=$ui->{window}->{height};
+			$display->clear();
+			$self->draw();
+		} 
 }
 
+
+##### Start Money Class ############################################################
 =head2 Money
 A Money object is inserted into each Box and is displayed.  Initilly it is 
 $avaialble, but as boxes are opened, the value is removed  and not drawn. 
@@ -270,30 +301,36 @@ terminal may display characters and how perl reads them: e.g.
 		my $label =	(($value<100)  ?((length $value)%2?"":" "):((length $value)%2?" ":"")).
 		                            $self->toString("£");
 		my $colour=$value<100000?"blue":"magenta";
-		my @decs=($painter->decorate($colour),
-			       $painter->decorate("white,on_$colour"),
-			       $painter->decorate("reset,$colour,on_black"),
-			       $painter->decorate("reset"));
+		my @decs=($display->decorate($colour),
+			       $display->decorate("white,on_$colour"),
+			       $display->decorate("reset,$colour,on_black"),
+			       $display->decorate("reset"));
 		my $padding=" "x((9-length $label)/2);
 		$label="$decs[0]◀ ".$decs[1].$padding.$label.$padding."$decs[2]▌▶ $decs[3]";
-		$painter->printAt($row*2,($side eq "left"?2:68),$label);
+		$display->printAt($row*2,($side eq "left"?2:$board->width()-12),$label);
 	}
 	
+=head3 toString()
+converts the value to a printable money format
+=cut		
 	method toString($currencySymbol){
 		($value<100)  ? $value.'p':$currencySymbol.($value/100);
 	}
 	
 	method undraw(){
 		my $colour=$value<100000?"white,on_blue":"white,on_magenta";
-		my $str=$painter->paint($painter->largeNum($self->toString("L")),$colour);
+		my $str=$display->paint($display->largeNum($self->toString("L")),$colour);
 		$board->message("That box contained");
 		sleep 1;
 		$board->message("");
-		$painter->flash($str,19,25,.2,6);
-		$painter->printAt($row*2,($side eq "left"?2:68)," "x12);
+		$display->flash($str,19,25,.2,6);
+		$display->printAt($row*2,($side eq "left"?2:$board->width()-12)," "x12);
 	}
 }
 
+##### End Money Class ############################################################
+
+##### Start Box Class ############################################################
 =head2 Box
 A Box object is created by the Board object and contains a Money object
 if uunopened it is drawn  on the Board Object.  Once opened the Box is removed
@@ -314,24 +351,26 @@ when "blink" is added to its decorations.
 
 	method draw(){
 		my $colour=$picked?"green":"red";
-		my $label=$painter->decorate("black,on_white")." ".$number.(" "x(3-length ($number))).$painter->decorate("white,on_$colour");
+		my $label=$display->decorate("black,on_white")." ".$number.(" "x(3-length ($number))).$display->decorate("white,on_$colour");
 		my $decorations   =$board->selectedBoxNo()?"white,on_$colour":"white,on_$colour,faint";
 		my $image=$number!=$board->selectedBoxNo()?
 		          "┌──────┐\n│ $label │\n└──────┘":
 		          "╔══════╗\n║ $label ║\n╚══════╝";
-		$painter->printAt($location->{row},$location->{column},
-		                  $painter->paint($image,$decorations));
+		$display->printAt($location->{row},$location->{column},
+		                  $display->paint($image,$decorations));
 	}
 	
 	method undraw(){
-		$painter->printAt($location->{row},$location->{column},
-		                  $painter->paint([(" "x15)x3],"white,on_black"));
+		$display->printAt($location->{row},$location->{column},
+		                  $display->paint([(" "x15)x3],"white,on_black"));
 	}
 }
+#####End Box Class ############################################################
 
-
-=head2 Box
-A Banker object interacts with the user
+#####Start Banker Class #######################################################
+=head2 Banker
+A Banker object interacts with the user to make offers and display statistics
+based on the remaining boxes of the 
 =cut
 
 class Banker{
@@ -345,9 +384,9 @@ class Banker{
 	method makeOffer(){
 		$offer=$self->stats();
 		$offers=[@$offers,$offer];
-		$board->message("With this board,  Banker ". 
-		      (($board->gameState()->{dealt})?" would have offered ": "offers you").":");
-		$painter->printAt(20,25,$painter->paint($painter->largeNum("L".$offer),"yellow,on_green"));
+		$board->message("I ". 
+		      (($board->gameState()->{dealt})?" would have offered ": "offer you").":");
+		$display->printAt(20,25,$display->paint($display->largeNum("L".$offer),"yellow,on_green"));
 		sleep 2;
 		if ($board->gameState()->{dealt}){
 			$board->promptOpenBox();
@@ -369,16 +408,21 @@ class Banker{
 		my $min=$moneyLeft[0]->toString("£");
 		my $blues=scalar map {$_->value()>75000?():$_} @moneyLeft;
 		my $reds =scalar @moneyLeft-$blues;
-		my $offer=$moneyLeft[int ((scalar @moneyLeft)/2)]->value()/100;
+		my $offer=(scalar @moneyLeft%2)?
+		                  $moneyLeft[int ((scalar @moneyLeft)/2)]->value()/100:
+		                  (($moneyLeft[int ((scalar @moneyLeft)/2)]->value()+
+		                  $moneyLeft[int ((scalar @moneyLeft)/2)-1]->value())/200);
 		$board->message("There are $blues blues and $reds reds left\n".
 		               "You could have $max,\nbut just as likely have $min\n".
 		               "With this board\n (and because I like you)");
-		sleep 5;
+		sleep 2;
 		$maxOffer=$offer if $offer>$maxOffer;
 		return $offer;
-		
 	}
 }
+
+##### End Banker Class #######################################################
+
 
 sub setupUI(){  # setup the UI
   $ui->setup({
@@ -388,14 +432,16 @@ sub setupUI(){  # setup the UI
         'rightarrow'=>sub{$board->chooseBox(1)},  # select next box
         'leftarrow' =>sub{$board->chooseBox(-1)}, # previous box 
         'return'    =>sub{$board->selectBox()},
-        "updateAction"=>sub{$board->draw();},      
+        "updateAction"=>sub{$board->draw();}, 
+        "windowChange"=>sub{$board->screenSizeChange()},   
      },
      dealornodeal=>{
         'rightarrow'=>sub{$board->chooseDoND("No Deal")},  # select next box
         'leftarrow' =>sub{$board->chooseDoND("Deal")},  # turn left 
         'return'    =>sub{$board->selectDoND()},
         "updateAction"=>sub{$board->draw();},     
-		},
+        "windowChange"=>sub{$board->screenSizeChange()},
+	},
+	
     });
-
 }
