@@ -21,9 +21,11 @@ class Display{
 		           8=>["▞▀▖","▞▀▖","▚▄▘"],
 		           9=>["▞▀▖","▝▀▌","▚▄▘"],
 		           0=>["▞▀▖","▌ ▌","▚▄▘"],
+		           "."=>["   ","   "," █ "],
 		           " "=>["   ","   ","   "],
 		           "L"=>["▗▚ ","▟▄ ","▟▄ "],
 		           "p"=>["   ","▗▚ ","▐▘ "],
+		           "?"=>["▞▀▖"," ▞ "," ▖ "],
 			   };
      
      BUILD{
@@ -143,7 +145,7 @@ prints a large version of the text (and currencies only)
 	method largeNum($number){
 		my $lot=["","",""];
 		foreach my $digit  (split //, $number){
-			die $digit unless $bigNum->{$digit};
+			$digit="?" unless $bigNum->{$digit};  # if character doesnt exist
 			foreach(0..2){
 				$lot->[$_].=$bigNum->{$digit}->[$_]
 			}
@@ -178,8 +180,9 @@ class UI{
 #######################################################################################
 #####################   User Interaction Object #######################################
 #######################################################################################
+
     field $update=1;
-    field $window={width=>80,height=>24};
+    field $window :reader ={width=>80,height=>24};
     field $stty;
     field $mode :writer :param //="default";
     field $buffer="";
@@ -190,9 +193,7 @@ class UI{
     field $repeat=0;
     field $debug=0;
     field $quitKey;
-    
-    $SIG{WINCH} = sub {winSizeChange()};
-    
+        
     BUILD{
 		$namedKeys={
         32     =>  'space',
@@ -221,7 +222,12 @@ class UI{
         '[21~m'=> 'F10',
         '[24~m'=> 'F12',
     };    
-		
+    
+        
+        $SIG{WINCH} = sub {$self->winSizeChange()};
+    
+        $stty = `stty -g`;  # save old stty settings
+        chomp($stty);
 	}
     
     method run($runMode){
@@ -262,6 +268,7 @@ class UI{
 		$run=0;
 		$| = 1;
 		`xset r on`;
+		system( 'stty', $stty );  # restore old tty
 	}
 	
 	method dokey($key) {
@@ -313,6 +320,7 @@ class UI{
         ($window->{height},  $window->{width} ) = split( /\s+/, `stty size` );
          $window->{height} -= 2;
     }
+    return $window;
   }
 
   method winSizeChange{
@@ -338,8 +346,6 @@ class UI{
   
   method ReadMode($mode){
     if ( $mode == 5 ) {  
-        $stty = `stty -g`;
-        chomp($stty);
         system( 'stty', 'raw', '-echo' );# find Windows equivalent
     }
     elsif ( $mode == 0 ) {
