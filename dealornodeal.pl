@@ -16,7 +16,7 @@ use lib "lib";
 # through two classes Display and UI
 use Game::Term::Interaction; 
 
-my $VERSION=0.003;
+my $VERSION=0.004;
 
 our $display=Display->new();
 our $ui=new UI;
@@ -135,13 +135,10 @@ change to mode (e.g. either picking a box, or choosing deal or no deal)
 =cut
 	 	  
 	  method mode($newMode){
-		  if ($newMode){
-			  $gameState->{mode}=$newMode if $newMode;
-			  $ui->stop();
-		      $ui->run($newMode);
+		  return $gameState->{mode} unless $newMode;
+		  $gameState->{mode}=$newMode;
+		  $ui->run($newMode);
 		  }
-		  return $gameState->{mode};
-	  }
 	  
 =head 3 chooseDoND()
 In DealorNoDeal mode the either option is highlighted using the arrow keys
@@ -161,7 +158,6 @@ In DealorNoDeal mode the highlighted option is selected using the return key
 =cut
 	 		  
 	  method selectDoND(){
-		      $ui->stop();
 			  if ($gameState->{dealt}){
 				  $self->message("OK you have already dealt at  £$gameState->{dealt}\n".
 				  "Banker would have offered you ".$banker->offer());
@@ -187,6 +183,7 @@ In DealorNoDeal mode the highlighted option is selected using the return key
 =cut	  
 	  
 	  method chooseBox($delta){
+		  return unless @boxes;
 		  if (defined $selectedBox){
 			  $selectedBox+=$delta;
 			  $selectedBox = 0      if ($selectedBox >= @boxes);
@@ -202,7 +199,6 @@ In DealorNoDeal mode the highlighted option is selected using the return key
 	  }
 	  
 	  method selectBox(){
-		  $ui->stop();
 		  die unless @boxes;
 			  if (not defined $playersBox){
 			     $self->message("You have Picked Box Number ".$boxes[$selectedBox]->number()."\nGood Luck!!!\n\nBanker do you want to make an offer?");
@@ -261,8 +257,8 @@ In DealorNoDeal mode the highlighted option is selected using the return key
 	  
 	  method screenSizeChange(){
 			$ui->get_terminal_size();
-			$width=$ui->{window}->{width};
-			$height=$ui->{window}->{height};
+			$width=$ui->window->{width};
+			$height=$ui->window->{height};
 			$display->clear();
 			$self->draw();
 		} 
@@ -436,8 +432,8 @@ sub setupUI(){  # setup the UI
         "windowChange"=>sub{$board->screenSizeChange()},   
      },
      dealornodeal=>{
-        'rightarrow'=>sub{$board->chooseDoND("No Deal")},  # select next box
-        'leftarrow' =>sub{$board->chooseDoND("Deal")},  # turn left 
+        'rightarrow'=>sub{$board->chooseDoND("No Deal")},  # select No deal
+        'leftarrow' =>sub{$board->chooseDoND("Deal")},     # select Deal
         'return'    =>sub{$board->selectDoND()},
         "updateAction"=>sub{$board->draw();},     
         "windowChange"=>sub{$board->screenSizeChange()},
