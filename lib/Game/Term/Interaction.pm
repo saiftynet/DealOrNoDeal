@@ -11,6 +11,7 @@ class Display{
                on_black=>40,on_red=>41,on_green=>42,on_yellow=>43,on_blue=>44,on_magenta=>45,on_cyan=>46,on_white=>47,
                reset=>0, bold=>1, faint=>2, italic=>3, underline=>4, blink=>5, strikethrough=>9, invert=>7, fast_blink=>6, no_blink=>25);
     field $buffer="\033[?c";
+    field $dimensions  :param //={width=>80,height=>24};
     field $bigNum={1=>[" ▟ "," ▐ "," ▟▖"],
 		           2=>["▞▀▖"," ▞ ","▟▄▖"],
 		           3=>["▞▀▖"," ▀▖","▚▄▘"],
@@ -27,6 +28,13 @@ class Display{
 		           "p"=>["   ","▗▚ ","▐▘ "],
 		           "?"=>["▞▀▖"," ▞ "," ▖ "],
 			   };
+	field $borders={	
+		simple=>{tl=>"+", t=>"-", tr=>"+", l=>"|", r=>"|", bl=>"+", b=>"-", br=>"+",ts=>"|",te=>"|",},
+		double=>{tl=>"╔", t=>"═", tr=>"╗", l=>"║", r=>"║", bl=>"╚", b=>"═", br=>"╝",ts=>"╣",te=>"╠",},
+		shadow=>{tl=>"┌", t=>"─", tr=>"╖", l=>"│", r=>"║", bl=>"╘", b=>"═", br=>"╝",ts=>"┨",te=>"┠",},
+		thin  =>{tl=>"┌", t=>"─", tr=>"┐", l=>"│", r=>"│", bl=>"└", b=>"─", br=>"┘",ts=>"┤",te=>"├",},  
+		thick =>{tl=>"┏", t=>"━", tr=>"┓", l=>"┃", r=>"┃", bl=>"┗", b=>"━", br=>"┛",ts=>"┫",te=>"┣",}, 
+	};
      
      BUILD{
 		 print "\033[?25l"; # disable blinking cursor
@@ -130,12 +138,11 @@ a comma separted string or an ArrayRef
 
     method trimBlock($block,$start,$length){
 		my @strs=ref $block ? @$block  :  split("\n",$block);
-		foreach (0..$#strs){
-			$strs[$_]=substr($strs[$_],$start,$length);
-		}
+		foreach my $row (0..$#strs){
+			$strs[$row]=substr($strs[$_],$start,$length);
+			$strs[$row].=" " x ($length-length($strs[$row]));
+		};
 		return ref $block?\@strs:join("\n",@strs);
-		
-		
 	}
 
 	
@@ -157,7 +164,7 @@ prints a large version of the text (and currencies only)
 		my ($block,$minColumn,$maxColumn)=@_;
 		unless ($minColumn || $maxColumn){
 			$minColumn=0;
-			$maxColumn=80; # change later to screenwidth
+			$maxColumn=$dimensions->{width}; # change later to screenwidth
 		}
 		unless ($maxColumn){
 			$maxColumn=$minColumn;
@@ -166,6 +173,23 @@ prints a large version of the text (and currencies only)
 		return if ($minColumn>$maxColumn) ;
 		
 		
+	}
+	
+	method box{
+		my %params=ref $_[0]?%$_[0]:@_;
+		my $content =$params{content}//[""];  # $content converted to arrayRef
+		$content=[split "\n",$content] unless (ref $content);
+		my $width=$params{width}//$self->blockWidth($content);
+		my $height=$params{height}//$self->blockHeight($content);
+		$content=[@$content[0..$height-1]];
+		$content=$self->trimBlock($content,0,$width);
+		my %border=$borders->{$params{style}//"simple"};
+		my @blck=($border{tl}.($border{t}x$width).$border{tr});
+		for (0..$height-1){
+			push @blck,$border{l}.(defined $content->[$_]?$content->[$_]:" "x$width).$border{r};
+		}
+		push @blck,$border{bl}.($border{t}x$width).$border{br};          
+		return [@blck];
 	}
 
 }
@@ -244,7 +268,7 @@ class UI{
 				$update=1;
 				$key = $self->ReadKey();
 			}
-		$self->ReadMode(0);
+		#$self->ReadMode(0);
 		print "\n";
 	}
     
@@ -268,7 +292,7 @@ class UI{
 		$run=0;
 		$| = 1;
 		`xset r on`;
-		system( 'stty', $stty );  # restore old tty
+		$self->ReadMode(0);  # restore old tty
 	}
 	
 	method dokey($key) {
@@ -349,7 +373,8 @@ class UI{
         system( 'stty', 'raw', '-echo' );# find Windows equivalent
     }
     elsif ( $mode == 0 ) {
-        system( 'stty', $stty ); # find Windows equivalent
+	   die "Mode 0 called";
+       # system( 'stty', $stty ); # find Windows equivalent
     }
   }
 
