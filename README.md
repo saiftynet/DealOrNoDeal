@@ -26,3 +26,8 @@ mind manipulation interactions.
 ![image](https://github.com/saiftynet/DealOrNoDeal/blob/main/Screenshots/dond.gif)
 - Split the Game Objects and UI/Display Objects as two separate files
 - Now better interactions with the two different modes identified (either choosing Deal or no deal, or choosing a box)
+
+
+### Version 0.004
+- Start of mechanism to handle window size changes
+- Improve interaction and unwanted echo of characters when user impatient 
